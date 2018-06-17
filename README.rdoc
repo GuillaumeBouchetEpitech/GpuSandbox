@@ -34,6 +34,6 @@ WebMonkeys contributors:
 * fasiha (https://github.com/fasiha)
 * maniart (https://github.com/maniart)
 
-WebMonkeys github: github.com/MaiaVictor/WebMonkeys
+WebMonkeys github: http://github.com/MaiaVictor/WebMonkeys
 
 == Thanks for watching !
