@@ -1,0 +1,15 @@
+{
+  "name": "GpuSandbox",
+  "version": "0.0.1",
+  "description": "TODO",
+  "main": "build/ammo-shell.js",
+  "repository": "GuillaumeBouchetEpitech/GpuSandbox.js",
+  "scripts": {
+    "build": "rollup -c"
+  },
+  "author": "GuillaumeBouchetEpitech",
+  "license": "MIT",
+  "devDependencies": {
+    "rollup": "^0.60.7"
+  }
+}
