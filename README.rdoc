@@ -1,0 +1,39 @@
+
+
+= GpuSandbox
+
+== Disclaimer
+
+* this is a work in progress, feel free to come back later
+* this is a simple refactor of WebMonkeys (see credits at the bottom)
+* it is worth mentionning that this refactor, as of now, possess less features
+
+== Project description
+
+TODO
+
+== Example(s)
+
+TODO
+
+== Diagram(s) / Documentation(s)
+
+TODO
+
+== License :
+
+MIT, same as for the WebMonkeys repository
+
+== Credits :
+
+WebMonkeys contributors:
+* MaiaVictor (https://github.com/MaiaVictor)
+* thysultan (https://github.com/thysultan) 
+* amilajack (https://github.com/amilajack)
+* cazala (https://github.com/cazala)
+* fasiha (https://github.com/fasiha)
+* maniart (https://github.com/maniart)
+
+WebMonkeys github: github.com/MaiaVictor/WebMonkeys
+
+== Thanks for watching !
