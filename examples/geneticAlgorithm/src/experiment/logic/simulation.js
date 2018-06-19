@@ -5,10 +5,6 @@ import GeneticAlgorithm from "../ai/geneticAlgorithm.js";
 
 //
 
-import "../../externals/WebMonkeys.js";
-
-//
-
 class Simulation {
 
 	constructor(circuitData) {
@@ -28,13 +24,14 @@ class Simulation {
 		const position = this._circuit.startPosition;
 		const angle = this._circuit.startAngle;
 		const checkpoints = this._circuit.checkpoints;
+		const genomes = this._geneticAlgorithm.genomes;
 
 		this._cars = [];
 		for (let ii = 0; ii < genomeSize; ++ii) {
 
 			const car = new Car(position, angle, checkpoints);
 
-			this._geneticAlgorithm.genomes[ii].car = car;
+			genomes[ii].car = car;
 
 			this._cars.push(car);
 		}
@@ -43,78 +40,61 @@ class Simulation {
 
 		//
 
-		// chain workers:
+		// chain tasks:
+		// -> set input (<= sensor results)
 		// -> compute neural network (need weights)
-		// ---> 1st hidden layer
-		// ---> 2nd hidden layer
-		// ---> output layer
-		// -> update positon and angle
-		// -> get sensor results
+		// ---> 1st hidden layer: input -> output1
+		// ---> 2nd hidden layer: output1 -> output2
+		// ---> output layer: output2 -> output3
+		// -> update car
+		// ---> set positon and angle (<= output3)
+		// ---> collide walls (need position+walls)
+		// ---> update sensors (need position+angle)
+		// ---> collide sensors (need walls)
+		// ---> collide checkpoints (need checkpoints+position)
 		// repeat
 
-		// this._monkeys = WebMonkeys();
+		// checkpoints => [ { p1X, p1Y, p2X, p2Y }, ... ]
+		// walls => [ { p1X, p1Y, p2X, p2Y }, ... ]
+		// weights => [ { weight, ... }, ... ]
+		// workspaces => [ { [inputs + outputs],  }, ... ]
+		// sensors => [ { { p1X, p1Y, p2X, p2Y, result }, ... }, ... ]
+		// car => [ { posX, posY, angle, alive, healthTicks, totalTicks }, ...  ]
 
+		const walls = this._circuit.walls;
 
-		// _processLayer(layer, inputs, output) {
+		this._gpuTaskNumber = 40;
 
-		// 	// Cycle over all the connections and sum their weights against the inputs.
-		// 	for (let ii = 0; ii < layer.length; ++ii) {
+		this._gpuSandbox = new GpuSandbox();
 
-		// 		const connections = layer[ii];
+		// checkpoints => [ { p1X, p1Y, p2X, p2Y }, ... ]
+		const bufferCheckpoints = this._gpuSandbox.createBuffer("bufferCheckpoints");
+		const dataCheckpoints = [];
+		checkpoints.forEach((item) => dataCheckpoints.push(item.p1.x, item.p1.y, item.p2.x, item.p2.y));
+		bufferCheckpoints.setWithFloats(dataCheckpoints);
 
-		// 		let activation = 0.0;
+		// walls => [ { p1X, p1Y, p2X, p2Y }, ... ]
+		const bufferWalls = this._gpuSandbox.createBuffer("bufferWalls");
+		const dataWalls = [];
+		walls.forEach((item) => dataWalls.push(item.p1.x, item.p1.y, item.p2.x, item.p2.y));
+		bufferWalls.setWithFloats(dataWalls);
 
-		// 		// Sum the weights to the activation value.
-		// 		for (let jj = 0; jj < inputs.length; ++jj)
-		// 			activation += inputs[jj] * connections[jj];
+		// weights => [ { weight, ... }, ... ]
+		const bufferWeights = this._gpuSandbox.createBuffer("bufferWeights");
+		const dataWeights = [];
+		genomes.forEach((genome) => {
+			genome.weights.forEach((weight) => dataWeights.push(weight));
+		});
+		bufferWeights.setWithFloats(dataWeights);
 
-		// 		output.push(activation);
-		// 	}
-		// }
+		// workspaces => [ { [input & outputs],  }, ... ]
+		const bufferWorkspaces = this._gpuSandbox.createBuffer("bufferWorkspaces");
+		let workspaceSize = 0;
+		this._annTopology.forEach((totalNeurons) => workspaceSize += totalNeurons);
+		bufferWorkspaces.setWithLength(this._gpuTaskNumber * workspaceSize);
 
-		// // weights (offset + size)
-		// // inputs (offset + size)
-		// // outputs offset to write in
-		// // number of neurons on the current layer
-		// // number of neurons on the previous layer
-
-		// this._monkeys.lib([
-		// 	"float processLayer(vec2 layerData, vec2 inputsData, int outputsOffset) {",
-		// 	"",
-		// 	"    int layerOffset = layerData.x;",
-		// 	"    int layerSize = layerData.y;",
-		// 	"",
-		// 	"    int inputsOffset = inputsData.x;",
-		// 	"    int inputsSize = inputsData.y;",
-		// 	"",
-		// 	"    for (int ii = 0; ii < layerSize; ++ii)",
-		// 	"    {",
-		// 	"        int weightsOffset = layerOffset + ii",
-		// 	"        connections",
-		// 	"    }",
-		// 	"",
-		// 	"    return a + b;",
-		// 	"}",
-		// ].join("\n"));
-
-		// this._monkeys.set("weights", [1, 1, 2, 2, 3, 3, 4, 4]);
-
-		// // this._monkeys.set("a", [1, 2, 3, 4]);
-		// // this._monkeys.set("b", [1, 2, 3, 4]);
-		// // this._monkeys.set("c", 4);
-		// // this._monkeys.set("checkpoints", [1, 1, 2, 2, 3, 3, 4, 4]);
-
-		// // this._monkeys.set("hiddenLayers", [1, 1, 2, 2, 3, 3, 4, 4]);
-		// // this._monkeys.set("outputs", [1, 1, 2, 2, 3, 3, 4, 4]);
-
-		// // // Workers are able to use functions defined on the lib
-		// // this._monkeys.work(4, [
-		// // 	"vec2 checkpoint = vec2(checkpoints(i * 2), checkpoints(i * 2 + 1));",
-		// // 	"vec2 lol = vec2(a(i), b(i));",
-		// // 	"c(i) := add(lol.x + checkpoint.x, lol.y + checkpoint.y);"
-		// // ].join("\n"));
-
-		// // const result = this._monkeys.get("c");
+		// sensors => [ { { p1X, p1Y, p2X, p2Y, result }, ... }, ... ]
+		const bufferSensors = this._gpuSandbox.createBuffer("bufferSensors");
 
 	}
 
