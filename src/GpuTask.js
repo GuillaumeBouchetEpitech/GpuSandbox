@@ -43,6 +43,10 @@ class GpuTask {
 				break;
 
 			taskStatements.pop();
+
+			if (!sandbox._buffersMap.has(setter.bufferName))
+				continue;
+
 			setters.push(setter);
 
 			if (setter.depthLevel.length > 0)
@@ -57,7 +61,7 @@ class GpuTask {
 
 		for (let ii = 1; ii < setters.length; ++ii)
 			if (setters[ii].bufferName !== this._resultBufferName)
-				throw new Error("sourceCode must write to only one buffer per task.");
+				throw new Error(`sourceCode must write to only one buffer per task, actual=${setters[ii].bufferName}, expected=${this._resultBufferName}.`);
 
 		const taskWithoutSetters = taskStatements.join(";") + ";";
 

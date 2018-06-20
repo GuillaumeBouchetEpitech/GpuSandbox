@@ -133,17 +133,18 @@ class SetterParser {
 			}
 		}
 
-		if (parserPhase === 7) {
+		if (parserPhase !== 7)
+			return null;
 
-			return {
-				bufferName,
-				bufferIndex,
-				depthLevel,
-				valueLogic
-			};
-		}
+		if (!ParserUtils.validateVariableName(bufferName))
+			return null;
 
-		return null;
+		return {
+			bufferName,
+			bufferIndex,
+			depthLevel,
+			valueLogic,
+		};
 	}
 
 	// TODO: friendlier logic

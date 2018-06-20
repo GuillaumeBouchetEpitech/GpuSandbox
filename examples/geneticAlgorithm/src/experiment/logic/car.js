@@ -177,6 +177,8 @@ class Car {
 	get fitness() { return this._fitness; }
 	get trail() { return this._trail; }
 	get sensors() { return this._sensors; }
+
+	get maxHealthInTicks() { return this._maxHealthInTicks; }
 };
 
 const sensorsSpread = Math.PI / 8.0;

@@ -38,7 +38,10 @@ class Simulation {
 
 		this._trails = [];
 
-		//
+		this._initGpuVersion();
+	}
+
+	_initGpuVersion() {
 
 		// chain tasks:
 		// -> set input (<= sensor results)
@@ -61,41 +64,96 @@ class Simulation {
 		// sensors => [ { { p1X, p1Y, p2X, p2Y, result }, ... }, ... ]
 		// car => [ { posX, posY, angle, alive, healthTicks, totalTicks }, ...  ]
 
+		const position = this._circuit.startPosition;
+		const angle = this._circuit.startAngle;
+		const checkpoints = this._circuit.checkpoints;
+		const genomes = this._geneticAlgorithm.genomes;
 		const walls = this._circuit.walls;
 
-		this._gpuTaskNumber = 40;
+		this._gpuTotalTaskNumber = 40;
 
 		this._gpuSandbox = new GpuSandbox();
 
 		// checkpoints => [ { p1X, p1Y, p2X, p2Y }, ... ]
 		const bufferCheckpoints = this._gpuSandbox.createBuffer("bufferCheckpoints");
 		const dataCheckpoints = [];
-		checkpoints.forEach((item) => dataCheckpoints.push(item.p1.x, item.p1.y, item.p2.x, item.p2.y));
+		checkpoints.forEach(item => dataCheckpoints.push(item.p1.x, item.p1.y, item.p2.x, item.p2.y));
 		bufferCheckpoints.setWithFloats(dataCheckpoints);
+		const strideCheckpoints = 4;
 
 		// walls => [ { p1X, p1Y, p2X, p2Y }, ... ]
 		const bufferWalls = this._gpuSandbox.createBuffer("bufferWalls");
 		const dataWalls = [];
-		walls.forEach((item) => dataWalls.push(item.p1.x, item.p1.y, item.p2.x, item.p2.y));
+		walls.forEach(item => dataWalls.push(item.p1.x, item.p1.y, item.p2.x, item.p2.y));
 		bufferWalls.setWithFloats(dataWalls);
+		const strideWalls = 4;
 
 		// weights => [ { weight, ... }, ... ]
 		const bufferWeights = this._gpuSandbox.createBuffer("bufferWeights");
 		const dataWeights = [];
-		genomes.forEach((genome) => {
-			genome.weights.forEach((weight) => dataWeights.push(weight));
+		genomes.forEach(genome => {
+			genome.weights.forEach(weight => dataWeights.push(weight));
 		});
 		bufferWeights.setWithFloats(dataWeights);
+		const strideWeights = genome.weights.length;
 
 		// workspaces => [ { [input & outputs],  }, ... ]
 		const bufferWorkspaces = this._gpuSandbox.createBuffer("bufferWorkspaces");
-		let workspaceSize = 0;
-		this._annTopology.forEach((totalNeurons) => workspaceSize += totalNeurons);
-		bufferWorkspaces.setWithLength(this._gpuTaskNumber * workspaceSize);
+		let singleWorkspaceSize = 0;
+		this._annTopology.forEach(totalNeurons => singleWorkspaceSize += totalNeurons);
+		bufferWorkspaces.setWithLength(this._gpuTotalTaskNumber * singleWorkspaceSize);
+		const strideWorkspaces = singleWorkspaceSize;
 
 		// sensors => [ { { p1X, p1Y, p2X, p2Y, result }, ... }, ... ]
 		const bufferSensors = this._gpuSandbox.createBuffer("bufferSensors");
+		const dataSensors = [];
+		this._cars.forEach(() => {
+			for (let ii = 0; ii < 5; ++ii)
+				dataSensors.push(0, 0, 0, 0, 1);
+		});
+		bufferSensors.setWithFloats(dataSensors);
+		const strideSensor = 5; // <= sensor (5 * float[5])
+		const strideSensors = 5 * strideSensor; // <= sensors (5 * sensor)
 
+		// car => [ { posX, posY, angle, alive, healthTicks, totalTicks }, ...  ]
+		const bufferCars = this._gpuSandbox.createBuffer("bufferCars");
+		const dataCars = [];
+		this._cars.forEach((car) => {
+			dataCars.push(
+				position.x,
+				position.y,
+				angle,
+				1, // alive
+				car.maxHealthInTicks, // healthInTicks
+				0, // totalTicks
+			);
+		});
+		bufferCars.setWithFloats(dataCars);
+		const strideCars = 6;
+
+		const setInputTaskSource = `
+
+			const int sensorsOffset = taskIndex * ${strideSensors};
+			const int workspacesOffset = taskIndex * ${strideWorkspaces};
+
+			for (int ii = 0; ii < 5; ++ii)
+			{
+				workspacesOffset() = ;
+			}
+
+			float sensorsOffset = bufferSensors(sensorsOffset);
+			float valueB = bufferB(taskIndex);
+
+			float valueC = myAdd(valueA, valueB);
+
+			bufferWorkspaces(taskIndex * strideWorkspaces) := valueC + float(g_globalValue);
+		`;
+
+		// -> set input (<= sensor results)
+		const setInputTask = gpuSandbox.createTask("set-input-task");
+		setInputTask.setSource(setInputTaskSource);
+
+		testTask.run(8);
 	}
 
 	update(delta) {

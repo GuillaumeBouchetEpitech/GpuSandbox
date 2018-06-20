@@ -10,7 +10,7 @@ window.onload = () => {
 
 		const librarySource = `
 
-			const int g_globalValue = 666;
+			const int g_globalValue = 200;
 
 			float myAdd(float a, float b)
 			{
@@ -24,15 +24,12 @@ window.onload = () => {
 		bufferA.setWithFloats([1, 2, 3, 4]);
 
 		const bufferB = gpuSandbox.createBuffer("bufferB");
-		bufferB.setWithFloats([4, 3, 2, 1]);
-		// bufferB.setWithFloats([1, 2, 3, 4]);
+		bufferB.setWithFloats([1, 2, 3, 4]);
 
 		const bufferC = gpuSandbox.createBuffer("bufferC");
-		bufferC.setWithLength(4);
+		bufferC.setWithLength(16);
 
 		const testTask = gpuSandbox.createTask("test");
-
-		// testTask.setSource("bufferC(i) := bufferA(i) + bufferB(i);");
 
 		const taskSource = `
 
@@ -41,14 +38,26 @@ window.onload = () => {
 
 			float valueC = myAdd(valueA, valueB);
 
-			bufferC(taskIndex) := valueC + float(g_globalValue);
-			// bufferC(0, taskIndex == 0 ? 1 : 0) := valueC + float(g_globalValue);
-		`;
+			float myStack[4];
 
+			for (int ii = 0; ii < 2; ++ii)
+			{
+				myStack[ii * 2 + 0] = valueC;
+				myStack[ii * 2 + 1] = valueC + float(g_globalValue);
+			}
+
+			;
+
+			bufferC(taskIndex * 4 + 0) := myStack[0];
+			bufferC(taskIndex * 4 + 1) := myStack[1];
+			bufferC(taskIndex * 4 + 2) := myStack[2];
+			bufferC(taskIndex * 4 + 3) := myStack[3];
+			;
+		`;
 
 		testTask.setSource(taskSource);
 
-		testTask.run(8);
+		testTask.run(4);
 
 		console.log(`bufferA=${bufferA.unpackAsFloats()}`);
 		console.log(`bufferB=${bufferB.unpackAsFloats()}`);
