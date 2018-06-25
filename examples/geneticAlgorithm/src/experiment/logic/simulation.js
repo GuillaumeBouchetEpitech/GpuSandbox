@@ -70,42 +70,43 @@ class Simulation {
 		const genomes = this._geneticAlgorithm.genomes;
 		const walls = this._circuit.walls;
 
-		this._gpuTotalTaskNumber = 40;
-
-		this._gpuSandbox = new GpuSandbox();
+		this._gpu = {
+			totalTaskNumber: 40,
+			sandbox: new GpuSandbox(),
+		};
 
 		// checkpoints => [ { p1X, p1Y, p2X, p2Y }, ... ]
-		const bufferCheckpoints = this._gpuSandbox.createBuffer("bufferCheckpoints");
+		const bufferCheckpoints = this._gpu.sandbox.createBuffer("bufferCheckpoints");
 		const dataCheckpoints = [];
 		checkpoints.forEach(item => dataCheckpoints.push(item.p1.x, item.p1.y, item.p2.x, item.p2.y));
 		bufferCheckpoints.setWithFloats(dataCheckpoints);
 		const strideCheckpoints = 4;
 
 		// walls => [ { p1X, p1Y, p2X, p2Y }, ... ]
-		const bufferWalls = this._gpuSandbox.createBuffer("bufferWalls");
+		const bufferWalls = this._gpu.sandbox.createBuffer("bufferWalls");
 		const dataWalls = [];
 		walls.forEach(item => dataWalls.push(item.p1.x, item.p1.y, item.p2.x, item.p2.y));
 		bufferWalls.setWithFloats(dataWalls);
 		const strideWalls = 4;
 
 		// weights => [ { weight, ... }, ... ]
-		const bufferWeights = this._gpuSandbox.createBuffer("bufferWeights");
+		const bufferWeights = this._gpu.sandbox.createBuffer("bufferWeights");
 		const dataWeights = [];
 		genomes.forEach(genome => {
 			genome.weights.forEach(weight => dataWeights.push(weight));
 		});
 		bufferWeights.setWithFloats(dataWeights);
-		const strideWeights = genome.weights.length;
+		const strideWeights = genomes[0].weights.length;
 
 		// workspaces => [ { [input & outputs],  }, ... ]
-		const bufferWorkspaces = this._gpuSandbox.createBuffer("bufferWorkspaces");
+		const bufferWorkspaces = this._gpu.sandbox.createBuffer("bufferWorkspaces");
 		let singleWorkspaceSize = 0;
 		this._annTopology.forEach(totalNeurons => singleWorkspaceSize += totalNeurons);
-		bufferWorkspaces.setWithLength(this._gpuTotalTaskNumber * singleWorkspaceSize);
+		bufferWorkspaces.setWithLength(this._gpu.totalTaskNumber * singleWorkspaceSize);
 		const strideWorkspaces = singleWorkspaceSize;
 
 		// sensors => [ { { p1X, p1Y, p2X, p2Y, result }, ... }, ... ]
-		const bufferSensors = this._gpuSandbox.createBuffer("bufferSensors");
+		const bufferSensors = this._gpu.sandbox.createBuffer("bufferSensors");
 		const dataSensors = [];
 		this._cars.forEach(() => {
 			for (let ii = 0; ii < 5; ++ii)
@@ -116,7 +117,7 @@ class Simulation {
 		const strideSensors = 5 * strideSensor; // <= sensors (5 * sensor)
 
 		// car => [ { posX, posY, angle, alive, healthTicks, totalTicks }, ...  ]
-		const bufferCars = this._gpuSandbox.createBuffer("bufferCars");
+		const bufferCars = this._gpu.sandbox.createBuffer("bufferCars");
 		const dataCars = [];
 		this._cars.forEach((car) => {
 			dataCars.push(
@@ -131,29 +132,152 @@ class Simulation {
 		bufferCars.setWithFloats(dataCars);
 		const strideCars = 6;
 
+		// -> set input (<= sensor results)
 		const setInputTaskSource = `
 
-			const int sensorsOffset = taskIndex * ${strideSensors};
-			const int workspacesOffset = taskIndex * ${strideWorkspaces};
+			int sensorsOffset = taskIndex * ${strideSensors};
+			int workspacesOffset = taskIndex * ${strideWorkspaces};
+
+			float myStack[5];
 
 			for (int ii = 0; ii < 5; ++ii)
 			{
-				workspacesOffset() = ;
+				float sensorValue = bufferSensors(sensorsOffset + 4);
+				myStack[ii] = sensorValue;
 			}
 
-			float sensorsOffset = bufferSensors(sensorsOffset);
-			float valueB = bufferB(taskIndex);
+			;
 
-			float valueC = myAdd(valueA, valueB);
-
-			bufferWorkspaces(taskIndex * strideWorkspaces) := valueC + float(g_globalValue);
+			bufferWorkspaces(workspacesOffset + 0) := myStack[0];
+			bufferWorkspaces(workspacesOffset + 1) := myStack[1];
+			bufferWorkspaces(workspacesOffset + 2) := myStack[2];
+			bufferWorkspaces(workspacesOffset + 3) := myStack[3];
+			bufferWorkspaces(workspacesOffset + 4) := myStack[4];
 		`;
 
-		// -> set input (<= sensor results)
-		const setInputTask = gpuSandbox.createTask("set-input-task");
+		const setInputTask = this._gpu.sandbox.createTask("set-input-task");
 		setInputTask.setSource(setInputTaskSource);
 
-		testTask.run(8);
+		//
+
+		// 5 neurons (input) to 4 neurons (hidden layer 1)
+		const computeLayer1TaskSource = `
+
+			int workspacesOffset = taskIndex * ${strideWorkspaces};
+			int weightsOffset = taskIndex * ${strideWeights};
+
+			float myStack[4];
+
+			for (int ii = 0; ii < 4; ++ii)
+			{
+				float activation = 0.0;
+
+				for (int jj = 0; jj < 5; ++jj)
+				{
+					float inputValue = bufferWorkspaces(workspacesOffset + jj);
+					float weightValue = bufferWeights(weightsOffset + jj);
+
+					activation = inputValue * weightValue;
+				}
+
+				myStack[ii] = activation;
+			}
+
+			;
+
+			bufferWorkspaces(workspacesOffset + 5 + 0) := myStack[0];
+			bufferWorkspaces(workspacesOffset + 5 + 1) := myStack[1];
+			bufferWorkspaces(workspacesOffset + 5 + 2) := myStack[2];
+			bufferWorkspaces(workspacesOffset + 5 + 3) := myStack[3];
+		`;
+
+		const computeLayer1Task = this._gpu.sandbox.createTask("compute-layer-1-task");
+		computeLayer1Task.setSource(computeLayer1TaskSource);
+
+		//
+
+		// 4 neurons (hidden layer 1) to 3 neurons (hidden layer 2)
+		const computeLayer2TaskSource = `
+
+			int workspacesOffset = taskIndex * ${strideWorkspaces};
+			int weightsOffset = taskIndex * ${strideWeights};
+
+			float myStack[3];
+
+			for (int ii = 0; ii < 3; ++ii)
+			{
+				float activation = 0.0;
+
+				for (int jj = 0; jj < 4; ++jj)
+				{
+					float inputValue = bufferWorkspaces(workspacesOffset + 5 + jj);
+					float weightValue = bufferWeights(weightsOffset + 5 + jj);
+
+					activation = inputValue * weightValue;
+				}
+
+				myStack[ii] = activation;
+			}
+
+			;
+
+			bufferWorkspaces(workspacesOffset + 5 + 4 + 0) := myStack[0];
+			bufferWorkspaces(workspacesOffset + 5 + 4 + 1) := myStack[1];
+			bufferWorkspaces(workspacesOffset + 5 + 4 + 2) := myStack[2];
+		`;
+
+		const computeLayer2Task = this._gpu.sandbox.createTask("compute-layer-2-task");
+		computeLayer2Task.setSource(computeLayer2TaskSource);
+
+		//
+
+		// 3 neurons (hidden layer 2) to 2 neurons (output layer)
+		const computeLayer3TaskSource = `
+
+			int workspacesOffset = taskIndex * ${strideWorkspaces};
+			int weightsOffset = taskIndex * ${strideWeights};
+
+			float myStack[2];
+
+			for (int ii = 0; ii < 2; ++ii)
+			{
+				float activation = 0.0;
+
+				for (int jj = 0; jj < 3; ++jj)
+				{
+					float inputValue = bufferWorkspaces(workspacesOffset + 5 + 4 + jj);
+					float weightValue = bufferWeights(weightsOffset + 5 + 4 + jj);
+
+					activation = inputValue * weightValue;
+				}
+
+				myStack[ii] = activation;
+			}
+
+			;
+
+			bufferWorkspaces(workspacesOffset + 5 + 4 + 3 + 0) := myStack[0];
+			bufferWorkspaces(workspacesOffset + 5 + 4 + 3 + 1) := myStack[1];
+		`;
+
+		const computeLayer3Task = this._gpu.sandbox.createTask("compute-layer-3-task");
+		computeLayer3Task.setSource(computeLayer3TaskSource);
+
+		//
+
+		// -> update car
+		// ---> set positon and angle (<= output3)
+		// ---> collide walls (need position+walls)
+		// ---> update sensors (need position+angle)
+		// ---> collide sensors (need walls)
+		// ---> collide checkpoints (need checkpoints+position)
+
+		//
+
+		setInputTask.run(this._gpu.totalTaskNumber);
+		computeLayer1Task.run(this._gpu.totalTaskNumber);
+		computeLayer2Task.run(this._gpu.totalTaskNumber);
+		computeLayer3Task.run(this._gpu.totalTaskNumber);
 	}
 
 	update(delta) {

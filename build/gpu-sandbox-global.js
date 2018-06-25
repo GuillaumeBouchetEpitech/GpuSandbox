@@ -932,8 +932,6 @@ class GpuSandbox {
 
 			const infoLog = gl.getShaderInfoLog(shader);
 
-			console.log(shaderSource);
-
 			throw new Error(`WebGL error, shader compilation failure, infoLog="${infoLog}"`);
 		}
 

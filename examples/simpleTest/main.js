@@ -42,8 +42,8 @@ window.onload = () => {
 
 			for (int ii = 0; ii < 2; ++ii)
 			{
-				myStack[ii * 2 + 0] = valueC;
-				myStack[ii * 2 + 1] = valueC + float(g_globalValue);
+				myStack[ii * 2 + 0] = valueC + float(ii);
+				myStack[ii * 2 + 1] = valueC + float(ii) + float(g_globalValue);
 			}
 
 			;
