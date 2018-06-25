@@ -132,11 +132,14 @@ class Simulation {
 		bufferCars.setWithFloats(dataCars);
 		const strideCars = 6;
 
-		// -> set input (<= sensor results)
-		const setInputTaskSource = `
+		// -> set inputs
+		// -> 5 sensors (value) to 5 neurons (input layer)
+		const setInputsTaskSource = `
 
 			int sensorsOffset = taskIndex * ${strideSensors};
 			int workspacesOffset = taskIndex * ${strideWorkspaces};
+
+			// TODO: hardcoded stuff here
 
 			float myStack[5];
 
@@ -155,16 +158,19 @@ class Simulation {
 			bufferWorkspaces(workspacesOffset + 4) := myStack[4];
 		`;
 
-		const setInputTask = this._gpu.sandbox.createTask("set-input-task");
-		setInputTask.setSource(setInputTaskSource);
+		const setInputsTask = this._gpu.sandbox.createTask("set-inputs-task");
+		setInputsTask.setSource(setInputsTaskSource);
 
 		//
 
-		// 5 neurons (input) to 4 neurons (hidden layer 1)
-		const computeLayer1TaskSource = `
+		// -> compute hidden layer 1
+		// -> 5 neurons (input) to 4 neurons (hidden layer 1)
+		const computeHiddenLayer1TaskSource = `
 
 			int workspacesOffset = taskIndex * ${strideWorkspaces};
 			int weightsOffset = taskIndex * ${strideWeights};
+
+			// TODO: hardcoded stuff here
 
 			float myStack[4];
 
@@ -191,16 +197,19 @@ class Simulation {
 			bufferWorkspaces(workspacesOffset + 5 + 3) := myStack[3];
 		`;
 
-		const computeLayer1Task = this._gpu.sandbox.createTask("compute-layer-1-task");
-		computeLayer1Task.setSource(computeLayer1TaskSource);
+		const computeHiddenLayer1Task = this._gpu.sandbox.createTask("compute-hidden-layer-1-task");
+		computeHiddenLayer1Task.setSource(computeHiddenLayer1TaskSource);
 
 		//
 
-		// 4 neurons (hidden layer 1) to 3 neurons (hidden layer 2)
-		const computeLayer2TaskSource = `
+		// -> compute hidden layer 2
+		// -> 4 neurons (hidden layer 1) to 3 neurons (hidden layer 2)
+		const computeHiddenLayer2TaskSource = `
 
 			int workspacesOffset = taskIndex * ${strideWorkspaces};
 			int weightsOffset = taskIndex * ${strideWeights};
+
+			// TODO: hardcoded stuff here
 
 			float myStack[3];
 
@@ -226,16 +235,19 @@ class Simulation {
 			bufferWorkspaces(workspacesOffset + 5 + 4 + 2) := myStack[2];
 		`;
 
-		const computeLayer2Task = this._gpu.sandbox.createTask("compute-layer-2-task");
-		computeLayer2Task.setSource(computeLayer2TaskSource);
+		const computeHiddenLayer2Task = this._gpu.sandbox.createTask("compute-hidden-layer-2-task");
+		computeHiddenLayer2Task.setSource(computeHiddenLayer2TaskSource);
 
 		//
 
-		// 3 neurons (hidden layer 2) to 2 neurons (output layer)
-		const computeLayer3TaskSource = `
+		// -> compute output layer
+		// -> 3 neurons (hidden layer 2) to 2 neurons (output layer)
+		const computeOutputLayerTaskSource = `
 
 			int workspacesOffset = taskIndex * ${strideWorkspaces};
 			int weightsOffset = taskIndex * ${strideWeights};
+
+			// TODO: hardcoded stuff here
 
 			float myStack[2];
 
@@ -260,10 +272,166 @@ class Simulation {
 			bufferWorkspaces(workspacesOffset + 5 + 4 + 3 + 1) := myStack[1];
 		`;
 
-		const computeLayer3Task = this._gpu.sandbox.createTask("compute-layer-3-task");
-		computeLayer3Task.setSource(computeLayer3TaskSource);
+		const computeOutputLayerTask = this._gpu.sandbox.createTask("compute-output-layer-task");
+		computeOutputLayerTask.setSource(computeOutputLayerTaskSource);
 
 		//
+
+		// -> compute car data
+		const updateCarDataTaskSource = `
+
+			#define M_PI 3.1415926535897932384626433832795
+			#define M_ROUND(d_value) (floor((d_value) + 0.5))
+			#define M_DELTA 0.016
+
+
+			int carsOffset = taskIndex * ${strideCars};
+			int workspacesOffset = taskIndex * ${strideWorkspaces};
+
+			float myStack[5];
+			myStack[0] = bufferCars(carsOffset + 0); // position x
+			myStack[1] = bufferCars(carsOffset + 1); // position y
+			myStack[2] = bufferCars(carsOffset + 2); // rotation angle
+			myStack[3] = bufferCars(carsOffset + 3); // is alive
+			myStack[4] = bufferCars(carsOffset + 4); // health in ticks
+
+			int isAlive = int(M_ROUND(myStack[3]));
+
+			if (isAlive > 0)
+			{
+				int healthInTicks = int(M_ROUND(myStack[4]));
+
+				if (healthInTicks > 0)
+				{
+					--healthInTicks;
+				}
+
+				if (healthInTicks == 0)
+				{
+					healthInTicks = 50; // TODO: hardcoded stuff here
+					isAlive = 0;
+					myStack[3] = float(isAlive);
+				}
+
+				myStack[4] = float(healthInTicks);
+			}
+
+			if (isAlive > 0)
+			{
+				float leftTheta = bufferWorkspaces(workspacesOffset + 5 + 4 + 3 + 0);
+				float rightTheta = bufferWorkspaces(workspacesOffset + 5 + 4 + 3 + 1);
+
+				// if (isinf(leftTheta) ||
+				// 	isnan(leftTheta))
+				// 	leftTheta = 0;
+
+				// if (isinf(rightTheta) ||
+				// 	isnan(rightTheta))
+				// 	rightTheta = 0;
+
+				float speedMax = 15.0;
+				float steerMax = M_PI / 32.0;
+
+				// TODO: try "clamp"
+				myStack[2] += max(-steerMax, min(steerMax, leftTheta * steerMax));
+				float speed = max(-speedMax, min(speedMax, rightTheta * speedMax));
+
+				myStack[0] += (speed * cos(myStack[2])) * M_DELTA;
+				myStack[1] += (speed * sin(myStack[2])) * M_DELTA;
+			}
+
+			;
+
+			bufferCars(carsOffset + 0) := myStack[0]; // position x
+			bufferCars(carsOffset + 1) := myStack[1]; // position y
+			bufferCars(carsOffset + 2) := myStack[2]; // rotation angle
+			bufferCars(carsOffset + 3) := myStack[3]; // is alive
+			bufferCars(carsOffset + 4) := myStack[4]; // health in ticks
+		`;
+
+		const updateCarDataTask = this._gpu.sandbox.createTask("compute-car-data-task");
+		updateCarDataTask.setSource(updateCarDataTaskSource);
+
+		//
+
+
+		// -> collide walls
+		const collideWallsTaskSource = `
+
+			#define M_PI 3.1415926535897932384626433832795
+			#define M_ROUND(d_value) (floor((d_value) + 0.5))
+			#define M_DELTA 0.016
+
+
+			int carsOffset = taskIndex * ${strideCars};
+			int workspacesOffset = taskIndex * ${strideWorkspaces};
+
+			float myStack[5];
+			myStack[0] = bufferCars(carsOffset + 0); // position x
+			myStack[1] = bufferCars(carsOffset + 1); // position y
+			myStack[2] = bufferCars(carsOffset + 2); // rotation angle
+			myStack[3] = bufferCars(carsOffset + 3); // is alive
+			myStack[4] = bufferCars(carsOffset + 4); // health in ticks
+
+			int isAlive = int(M_ROUND(myStack[3]));
+
+			if (isAlive > 0)
+			{
+				int healthInTicks = int(M_ROUND(myStack[4]));
+
+				if (healthInTicks > 0)
+				{
+					--healthInTicks;
+				}
+
+				if (healthInTicks == 0)
+				{
+					healthInTicks = 50; // TODO: hardcoded stuff here
+					isAlive = 0;
+					myStack[3] = float(isAlive);
+				}
+
+				myStack[4] = float(healthInTicks);
+			}
+
+			if (isAlive > 0)
+			{
+				float leftTheta = bufferWorkspaces(workspacesOffset + 5 + 4 + 3 + 0);
+				float rightTheta = bufferWorkspaces(workspacesOffset + 5 + 4 + 3 + 1);
+
+				// if (isinf(leftTheta) ||
+				// 	isnan(leftTheta))
+				// 	leftTheta = 0;
+
+				// if (isinf(rightTheta) ||
+				// 	isnan(rightTheta))
+				// 	rightTheta = 0;
+
+				float speedMax = 15.0;
+				float steerMax = M_PI / 32.0;
+
+				// TODO: try "clamp"
+				myStack[2] += max(-steerMax, min(steerMax, leftTheta * steerMax));
+				float speed = max(-speedMax, min(speedMax, rightTheta * speedMax));
+
+				myStack[0] += (speed * cos(myStack[2])) * M_DELTA;
+				myStack[1] += (speed * sin(myStack[2])) * M_DELTA;
+			}
+
+			;
+
+			bufferCars(carsOffset + 0) := myStack[0]; // position x
+			bufferCars(carsOffset + 1) := myStack[1]; // position y
+			bufferCars(carsOffset + 2) := myStack[2]; // rotation angle
+			bufferCars(carsOffset + 3) := myStack[3]; // is alive
+			bufferCars(carsOffset + 4) := myStack[4]; // health in ticks
+		`;
+
+		const collideWallsTask = this._gpu.sandbox.createTask("collide-walls-task");
+		collideWallsTask.setSource(collideWallsTaskSource);
+
+		//
+
 
 		// -> update car
 		// ---> set positon and angle (<= output3)
@@ -274,10 +442,11 @@ class Simulation {
 
 		//
 
-		setInputTask.run(this._gpu.totalTaskNumber);
-		computeLayer1Task.run(this._gpu.totalTaskNumber);
-		computeLayer2Task.run(this._gpu.totalTaskNumber);
-		computeLayer3Task.run(this._gpu.totalTaskNumber);
+		setInputsTask.run(this._gpu.totalTaskNumber);
+		computeHiddenLayer1Task.run(this._gpu.totalTaskNumber);
+		computeHiddenLayer2Task.run(this._gpu.totalTaskNumber);
+		computeOutputLayerTask.run(this._gpu.totalTaskNumber);
+		updateCarDataTask.run(this._gpu.totalTaskNumber);
 	}
 
 	update(delta) {

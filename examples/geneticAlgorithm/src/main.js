@@ -66,6 +66,8 @@ window.onload = () => {
         myExperiment.render();
 
         myFpsmeterRender.tick();
+
+        isRunning = false;
     };
 
     tick();

@@ -24,11 +24,8 @@ class GpuTask {
 
 		this._usesDepth = false;
 
-		// get the "not commented" and not "not empty" lines of code;
 		const taskStatements = sourceCode.split(";")
-										 .map(item => item.trim())
-										 .filter(item => item.substr(0, 2) !== "//")
-										 .filter(item => item.length > 0);
+		taskStatements.pop();
 
 		const setters = [];
 
